@@ -338,6 +338,19 @@
     letter-spacing:0.08em;
     padding:10px 0 18px;
   }
+  .reset-link{
+    background:none;
+    border:none;
+    color:#7a6a44;
+    font-size:10px;
+    letter-spacing:0.08em;
+    text-decoration:underline;
+    text-underline-offset:2px;
+    cursor:pointer;
+    font-family:'Sarabun', sans-serif;
+    padding:0;
+  }
+  .reset-link:hover{color:var(--tomato);}
 
   /* mobile sticky total bar */
   .mobile-bar{
@@ -367,7 +380,7 @@
   <div class="top">
     <div class="eyebrow">Order Ticket &middot; Cost Sheet</div>
     <h1>คำนวณต้นทุนแซนวิช</h1>
-    <p>ใส่จำนวนที่จะทำ ปรับวัตถุดิบ อุปกรณ์ และเครื่องดื่ม แล้วดูใบเสร็จต้นทุนอัปเดตสด ๆ ทางขวา</p>
+    <p>ใส่จำนวนที่จะทำ ปรับวัตถุดิบ อุปกรณ์ และเครื่องดื่ม ระบบจะบันทึกให้อัตโนมัติในเบราว์เซอร์นี้</p>
   </div>
 
   <div class="layout">
@@ -439,7 +452,10 @@
         <div class="stamp" id="stampTotal">฿0.00</div>
         <div class="torn"></div>
       </div>
-      <div class="foot-note">คำนวณอัตโนมัติจากราคาต่อแพ็คและปริมาณที่ใช้จริง</div>
+      <div class="foot-note">
+        <span id="savedNote"></span>
+        &middot; <button class="reset-link" onclick="resetToDefaults()">ล้างและเริ่มใหม่</button>
+      </div>
     </div>
   </div>
 
@@ -449,22 +465,93 @@
   </div>
 
 <script>
+const STORAGE_KEY = 'sendwiz_cost_calc_v1';
+
 let idCounter = 0;
 const nextId = () => 'i' + (idCounter++);
 
-// seeded from the uploaded spreadsheet
-let ingredients = [
-  {id: nextId(), name:'ขนมปัง',   priceUnit:38,  packQty:18, packUnit:'แพ็ค', used:1.5, useUnit:'แผ่น'},
-  {id: nextId(), name:'โบโลน่า',  priceUnit:75,  packQty:40, packUnit:'ถุง',  used:0.5, useUnit:'อัน'},
-  {id: nextId(), name:'ไส้กรอก',  priceUnit:77,  packQty:20, packUnit:'ถุง',  used:1,   useUnit:'ชิ้น'},
-  {id: nextId(), name:'ไข่',      priceUnit:110, packQty:30, packUnit:'แผง',  used:0.5, useUnit:'ฟอง'},
+// seeded from the uploaded spreadsheet — used only if nothing saved yet
+const DEFAULT_INGREDIENTS = [
+  {name:'ขนมปัง',   priceUnit:38,  packQty:18, packUnit:'แพ็ค', used:1.5, useUnit:'แผ่น'},
+  {name:'โบโลน่า',  priceUnit:75,  packQty:40, packUnit:'ถุง',  used:0.5, useUnit:'อัน'},
+  {name:'ไส้กรอก',  priceUnit:77,  packQty:20, packUnit:'ถุง',  used:1,   useUnit:'ชิ้น'},
+  {name:'ไข่',      priceUnit:110, packQty:30, packUnit:'แผง',  used:0.5, useUnit:'ฟอง'},
 ];
-let equipment = [
-  {id: nextId(), name:'กล่องใส่', cost:0},
-  {id: nextId(), name:'กระดาษรอง', cost:0},
-  {id: nextId(), name:'ทิชชู่', cost:0},
+const DEFAULT_EQUIPMENT = [
+  {name:'กล่องใส่', cost:0},
+  {name:'กระดาษรอง', cost:0},
+  {name:'ทิชชู่', cost:0},
 ];
+const DEFAULT_DRINKS = [];
+const DEFAULT_SERVINGS = 56;
+
+let ingredients = [];
+let equipment = [];
 let drinks = [];
+
+function withIds(list){
+  return list.map(it => ({ id: nextId(), ...it }));
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const saved = JSON.parse(raw);
+      ingredients = withIds(saved.ingredients || DEFAULT_INGREDIENTS);
+      equipment   = withIds(saved.equipment || DEFAULT_EQUIPMENT);
+      drinks      = withIds(saved.drinks || DEFAULT_DRINKS);
+      document.getElementById('servings').value = (saved.servings !== undefined ? saved.servings : DEFAULT_SERVINGS);
+      showSavedNote(saved.savedAt);
+      return;
+    }
+  }catch(e){
+    console.warn('โหลดข้อมูลที่บันทึกไว้ไม่สำเร็จ', e);
+  }
+  // no saved data (or read failed) — use defaults
+  ingredients = withIds(DEFAULT_INGREDIENTS);
+  equipment   = withIds(DEFAULT_EQUIPMENT);
+  drinks      = withIds(DEFAULT_DRINKS);
+  document.getElementById('servings').value = DEFAULT_SERVINGS;
+}
+
+function saveState(){
+  try{
+    const payload = {
+      servings: getServings(),
+      ingredients: ingredients.map(({id, ...rest}) => rest),
+      equipment: equipment.map(({id, ...rest}) => rest),
+      drinks: drinks.map(({id, ...rest}) => rest),
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    showSavedNote(payload.savedAt);
+  }catch(e){
+    console.warn('บันทึกข้อมูลไม่สำเร็จ (อาจเป็นเพราะเปิดในโหมดไม่ระบุตัวตน)', e);
+  }
+}
+
+function showSavedNote(iso){
+  const el = document.getElementById('savedNote');
+  if(!el) return;
+  if(!iso){ el.textContent = ''; return; }
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+  el.textContent = `บันทึกล่าสุด ${time}`;
+}
+
+function resetToDefaults(){
+  if(!confirm('ล้างข้อมูลทั้งหมดและกลับไปใช้ค่าเริ่มต้นจากไฟล์ Excel เดิม?')) return;
+  try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+  ingredients = withIds(DEFAULT_INGREDIENTS);
+  equipment   = withIds(DEFAULT_EQUIPMENT);
+  drinks      = withIds(DEFAULT_DRINKS);
+  document.getElementById('servings').value = DEFAULT_SERVINGS;
+  showSavedNote(null);
+  renderAll();
+  saveState();
+}
+
 
 function money(n){
   if(!isFinite(n)) n = 0;
@@ -483,26 +570,32 @@ function getServings(){
 function addIngredient(){
   ingredients.push({id: nextId(), name:'', priceUnit:0, packQty:1, packUnit:'แพ็ค', used:0, useUnit:''});
   renderAll();
+  saveState();
 }
 function removeIngredient(id){
   ingredients = ingredients.filter(x => x.id !== id);
   renderAll();
+  saveState();
 }
 function addEquipment(){
   equipment.push({id: nextId(), name:'', cost:0});
   renderAll();
+  saveState();
 }
 function removeEquipment(id){
   equipment = equipment.filter(x => x.id !== id);
   renderAll();
+  saveState();
 }
 function addDrink(){
   drinks.push({id: nextId(), name:'', cost:0});
   renderAll();
+  saveState();
 }
 function removeDrink(id){
   drinks = drinks.filter(x => x.id !== id);
   renderAll();
+  saveState();
 }
 
 function updateIngredientField(id, field, value){
@@ -516,6 +609,7 @@ function updateIngredientField(id, field, value){
   }
   updateIngredientReadout(it);
   computeAndRenderReceipt();
+  saveState();
 }
 function updateIngredientReadout(it){
   const el = document.getElementById('readout-' + it.id);
@@ -536,6 +630,7 @@ function updateSimpleField(list, id, field, value){
     it.cost = isFinite(v) ? v : 0;
   }
   computeAndRenderReceipt();
+  saveState();
 }
 
 function renderIngredientForm(){
@@ -672,8 +767,10 @@ function renderAll(){
 document.getElementById('servings').addEventListener('input', () => {
   ingredients.forEach(updateIngredientReadout);
   computeAndRenderReceipt();
+  saveState();
 });
 
+loadState();
 renderAll();
 </script>
 </body>
